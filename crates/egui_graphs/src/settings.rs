@@ -117,21 +117,17 @@ impl SettingsInteraction {
     }
 }
 
-/// Represents graph navigation settings.
+/// Represents graph navigation settings (zoom and pan).
 #[derive(Debug, Clone)]
 pub struct SettingsNavigation {
-    pub(crate) fit_to_screen_enabled: bool,
     pub(crate) zoom_and_pan_enabled: bool,
-    pub(crate) fit_to_screen_padding: f32,
     pub(crate) zoom_speed: f32,
 }
 
 impl Default for SettingsNavigation {
     fn default() -> Self {
         Self {
-            fit_to_screen_padding: 0.1,
             zoom_speed: 0.1,
-            fit_to_screen_enabled: true,
             zoom_and_pan_enabled: false,
         }
     }
@@ -143,18 +139,6 @@ impl SettingsNavigation {
         Self::default()
     }
 
-    /// Fits the graph to the screen.
-    ///
-    /// With this enabled, the graph will be scaled and panned to fit the screen on every frame.
-    ///
-    /// You can configure the padding around the graph with `fit_to_screen_padding` setting.
-    ///
-    /// Default: `true`
-    pub fn with_fit_to_screen_enabled(mut self, enabled: bool) -> Self {
-        self.fit_to_screen_enabled = enabled;
-        self
-    }
-
     /// Zoom with ctrl + mouse wheel, pan with mouse drag.
     ///
     /// Default: `false`
@@ -163,19 +147,40 @@ impl SettingsNavigation {
         self
     }
 
-    /// Padding around the graph when fitting to the screen.
-    ///
-    /// Default: `0.1`
-    pub fn with_fit_to_screen_padding(mut self, padding: f32) -> Self {
-        self.fit_to_screen_padding = padding;
-        self
-    }
-
     /// Controls the speed of the zoom.
     ///
     /// Default: `0.1`
     pub fn with_zoom_speed(mut self, speed: f32) -> Self {
         self.zoom_speed = speed;
+        self
+    }
+}
+
+/// Represents graph display settings.
+#[derive(Debug, Clone)]
+pub struct SettingsDisplay {
+    pub fit_to_screen_padding: f32,
+}
+
+impl Default for SettingsDisplay {
+    fn default() -> Self {
+        Self {
+            fit_to_screen_padding: 0.1,
+        }
+    }
+}
+
+impl SettingsDisplay {
+    /// Creates new [`SettingsDisplay`] with default values.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Padding around the graph when fitting to the screen.
+    ///
+    /// Default: `0.1`
+    pub fn with_fit_to_screen_padding(mut self, padding: f32) -> Self {
+        self.fit_to_screen_padding = padding;
         self
     }
 }

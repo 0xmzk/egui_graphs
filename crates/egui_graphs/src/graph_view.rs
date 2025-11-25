@@ -4,7 +4,7 @@ use crate::{
     draw::{drawer::Drawer, DefaultEdgeShape, DefaultNodeShape, DrawContext},
     layouts::{self, Layout, LayoutState},
     metadata::{reset_metadata, MetadataFrame, MetadataInstance},
-    settings::{SettingsInteraction, SettingsNavigation, SettingsStyle},
+    settings::{SettingsDisplay, SettingsInteraction, SettingsNavigation, SettingsStyle},
     DisplayEdge, DisplayNode, Graph,
 };
 
@@ -216,6 +216,7 @@ pub struct GraphView<
 
     settings_interaction: SettingsInteraction,
     settings_navigation: SettingsNavigation,
+    settings_display: SettingsDisplay,
     settings_style: SettingsStyle,
 
     custom_id: Option<String>,
@@ -294,7 +295,9 @@ where
 
         // Hover detection and cursor update happens as early as possible using current input state
         self.handle_hover(ui, &resp, &mut view, eff);
-        self.handle_fit_to_screen(&resp, &mut view.frame, &mut view.instance);
+        
+        // Mark first frame as complete (no auto-fit)
+        view.instance.first_frame_pending = false;
 
         // Handle node drag before navigation so pan doesn't kick in on the first frame
         // when starting a node drag.
@@ -358,6 +361,7 @@ where
             settings_style: SettingsStyle::default(),
             settings_interaction: SettingsInteraction::default(),
             settings_navigation: SettingsNavigation::default(),
+            settings_display: SettingsDisplay::default(),
 
             custom_id: None,
 
@@ -532,6 +536,12 @@ where
         self
     }
 
+    /// Modifies default behaviour of display settings.
+    pub fn with_display(mut self, settings_display: &SettingsDisplay) -> Self {
+        self.settings_display = settings_display.clone();
+        self
+    }
+
     /// Modifies default style settings.
     pub fn with_styles(mut self, settings_style: &SettingsStyle) -> Self {
         self.settings_style = settings_style.clone();
@@ -543,6 +553,116 @@ where
     pub fn with_id(mut self, custom_id: Option<String>) -> Self {
         self.custom_id = custom_id;
         self
+    }
+
+    /// Apply a zoom delta to the graph view. Positive values zoom in, negative values zoom out.
+    /// The zoom is centered on the screen center.
+    pub fn apply_zoom(
+        ui: &mut egui::Ui,
+        delta: f32,
+        id: Option<String>,
+    ) {
+        let mut meta = MetadataFrame::new(id).load(ui);
+        
+        // Create a dummy rect centered at origin for zoom calculation
+        let dummy_rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(100.0, 100.0));
+        let center_pos = dummy_rect.center().to_vec2();
+        let graph_center_pos = (center_pos - meta.pan) / meta.zoom;
+        let factor = 1. + delta;
+        let new_zoom = meta.zoom * factor;
+
+        let pan_delta = graph_center_pos * meta.zoom - graph_center_pos * new_zoom;
+        let new_pan = meta.pan + pan_delta;
+
+        meta.pan = new_pan;
+        meta.zoom = new_zoom;
+        
+        meta.save(ui);
+    }
+
+    /// Fits the graph to screen once. This calculates the appropriate zoom and pan
+    /// to show the entire graph within the given rect_size, then saves it.
+    /// Unlike the old continuous fit_to_screen_enabled, this is a one-time operation
+    /// that doesn't prevent further navigation.
+    pub fn fit_to_screen_once(
+        ui: &mut egui::Ui,
+        g: &Graph<N, E, Ty, Ix, Dn, De>,
+        rect_size: Vec2,
+        padding: f32,
+        id: Option<String>,
+    ) {
+        let mut meta = MetadataFrame::new(id).load(ui);
+        let bounds = g.bounds();
+        let (mut min, mut max) = (bounds.min, bounds.max);
+        
+        // Validate bounds
+        let invalid_bounds = !min.x.is_finite()
+            || !min.y.is_finite()
+            || !max.x.is_finite()
+            || !max.y.is_finite()
+            || min.x > max.x
+            || min.y > max.y;
+        if invalid_bounds {
+            return;
+        }
+        
+        let mut diag: Vec2 = max - min;
+        if !diag.x.is_finite() || !diag.y.is_finite() || diag.x <= 0.0 || diag.y <= 0.0 {
+            return;
+        }
+        
+        let graph_size = diag * (1. + padding);
+        let (width, height) = (graph_size.x.max(1e-3), graph_size.y.max(1e-3));
+        let (canvas_width, canvas_height) = (rect_size.x, rect_size.y);
+        let zoom_x = (canvas_width / width).abs();
+        let zoom_y = (canvas_height / height).abs();
+        let mut new_zoom = zoom_x.min(zoom_y);
+        
+        if !new_zoom.is_finite() || new_zoom <= 0.0 {
+            new_zoom = 1.0;
+        }
+        
+        let graph_center = (min.to_vec2() + max.to_vec2()) / 2.0;
+        let canvas_center = rect_size / 2.0;
+        let new_pan = canvas_center - graph_center * new_zoom;
+        
+        meta.pan = new_pan;
+        meta.zoom = new_zoom;
+        meta.save(ui);
+    }
+
+    /// Centers the view on the nodes without changing the zoom level.
+    /// This pans the view so that the center of all nodes is at the center of the screen.
+    pub fn center_on_nodes(
+        ui: &mut egui::Ui,
+        g: &Graph<N, E, Ty, Ix, Dn, De>,
+        rect_size: Vec2,
+        id: Option<String>,
+    ) {
+        let mut meta = MetadataFrame::new(id).load(ui);
+        let bounds = g.bounds();
+        let (min, max) = (bounds.min, bounds.max);
+        
+        // Validate bounds
+        let invalid_bounds = !min.x.is_finite()
+            || !min.y.is_finite()
+            || !max.x.is_finite()
+            || !max.y.is_finite()
+            || min.x > max.x
+            || min.y > max.y;
+        if invalid_bounds {
+            return;
+        }
+        
+        // Calculate the center of the graph bounds
+        let graph_center = (min.to_vec2() + max.to_vec2()) / 2.0;
+        // Calculate the center of the canvas
+        let canvas_center = rect_size / 2.0;
+        // Pan so that graph center aligns with canvas center, keeping current zoom
+        let new_pan = canvas_center - graph_center * meta.zoom;
+        
+        meta.pan = new_pan;
+        meta.save(ui);
     }
 
     /// Advance the active layout simulation by a fixed number of steps immediately.
@@ -712,27 +832,6 @@ where
         self.g.set_selected_edges(selected_edges);
         self.g.set_dragged_node(dragged);
         self.g.set_bounds(meta.graph_bounds());
-    }
-
-    /// Fits the graph to the screen if it is the first frame or
-    /// fit to screen setting is enabled;
-    fn handle_fit_to_screen(
-        &self,
-        r: &Response,
-        meta: &mut MetadataFrame,
-        instance: &mut MetadataInstance,
-    ) {
-        // Fit if this instance is on its first frame, or if the global setting is enabled.
-        if !(instance.first_frame_pending || self.settings_navigation.fit_to_screen_enabled) {
-            return;
-        }
-
-        // Use a local rect (origin at 0,0) for fit-to-screen calculations.
-        let local_rect = Rect::from_min_size(Pos2::ZERO, r.rect.size());
-        self.fit_to_screen(&local_rect, meta);
-
-        // Mark this instance as having completed its first-frame fit.
-        instance.first_frame_pending = false;
     }
 
     fn handle_click(
@@ -937,40 +1036,6 @@ where
             // Release ownership on drag stop
             view.sync.drag_owner = None;
         }
-    }
-
-    fn fit_to_screen(&self, rect: &Rect, meta: &mut MetadataFrame) {
-        let raw_bounds = meta.graph_bounds();
-        let (mut min, mut max) = (raw_bounds.min, raw_bounds.max);
-        let invalid_bounds = !min.x.is_finite()
-            || !min.y.is_finite()
-            || !max.x.is_finite()
-            || !max.y.is_finite()
-            || min.x > max.x
-            || min.y > max.y;
-        if invalid_bounds {
-            min = Pos2::new(-0.5, -0.5);
-            max = Pos2::new(0.5, 0.5);
-        }
-        let mut diag: Vec2 = max - min;
-        if !diag.x.is_finite() || !diag.y.is_finite() || diag.x <= 0.0 || diag.y <= 0.0 {
-            diag = Vec2::new(1., 1.);
-        }
-        let graph_size = diag * (1. + self.settings_navigation.fit_to_screen_padding);
-        let (width, height) = (graph_size.x.max(1e-3), graph_size.y.max(1e-3));
-        let canvas_size = rect.size();
-        let (canvas_width, canvas_height) = (canvas_size.x, canvas_size.y);
-        let zoom_x = (canvas_width / width).abs();
-        let zoom_y = (canvas_height / height).abs();
-        let mut new_zoom = zoom_x.min(zoom_y);
-        if !new_zoom.is_finite() || new_zoom <= 0.0 {
-            new_zoom = 1.0;
-        }
-        let zoom_delta = new_zoom / meta.zoom - 1.0;
-        self.zoom(rect, zoom_delta, None, meta);
-        let graph_center = (min.to_vec2() + max.to_vec2()) / 2.0;
-        let new_pan = rect.center().to_vec2() - graph_center * new_zoom;
-        self.set_pan(new_pan, meta);
     }
 
     fn handle_navigation(
