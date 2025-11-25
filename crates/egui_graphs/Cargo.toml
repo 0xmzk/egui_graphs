@@ -27,23 +27,24 @@ web-time.workspace = true
 crossbeam = { workspace = true, optional = true }
 
 [features]
-events = ["dep:crossbeam", "demo-core/events"]
+events = ["dep:crossbeam"]
 
 
 
-[dev-dependencies]
-eframe.workspace = true
-bevy.workspace = true
-bevy_egui.workspace = true
-serde_json.workspace = true
-ureq = { workspace = true, default-features = true, features = ["json"] }
-criterion = { workspace = true, features = ["html_reports"] }
-demo-core = { path = "../demo-core" }
+# dev-dependencies removed to avoid building demo-core
+# [dev-dependencies]
+# eframe.workspace = true
+# bevy.workspace = true
+# bevy_egui.workspace = true
+# serde_json.workspace = true
+# ureq = { workspace = true, default-features = true, features = ["json"] }
+# criterion = { workspace = true, features = ["html_reports"] }
+# demo-core = { path = "../demo-core" }
  
 
-[[bench]]
-name = "fruchterman_reingold"
-harness = false
+# [[bench]]
+# name = "fruchterman_reingold"
+# harness = false
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # Enable JS RNG source for all wasm dependents via feature unification.
